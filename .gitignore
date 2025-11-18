@@ -1,0 +1,69 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment Variables
+.env
+.env.local
+.env.production
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Uploads (user data)
+uploads/
+backend/uploads/
+backend/static/uploads/
+
+# Build artifacts
+frontend/dist/
+frontend/node_modules/
+*.zip
+
+# Temporary files
+nul
+*.tmp
+*.temp
+
+# Deployment scripts (may contain sensitive info)
+deploy_*.zip
+pack_for_deploy.ps1
+test_local.ps1
+setup_poppler.ps1
+
+# Poppler (large binary, should be installed separately)
+poppler/
+
+# Claude workspace
+.claude/

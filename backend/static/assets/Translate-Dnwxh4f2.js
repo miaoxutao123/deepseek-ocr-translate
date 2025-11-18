@@ -1,0 +1,1 @@
+import{_ as n}from"./_plugin-vue_export-helper-DlAUqK2U.js";import{k as r,o as a,w as s,d as l,h as o}from"./index-BEEL7eZv.js";const c={};function _(d,e){const t=l("el-card");return a(),r(t,null,{default:s(()=>[...e[0]||(e[0]=[o("h3",null,"翻译功能开发中...",-1),o("p",null,"此页面用于显示对照翻译结果和进行纠错标注",-1)])]),_:1})}const m=n(c,[["render",_]]);export{m as default};

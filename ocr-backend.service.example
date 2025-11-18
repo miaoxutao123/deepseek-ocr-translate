@@ -1,0 +1,42 @@
+# Systemd 服务配置文件
+# 安装路径: /etc/systemd/system/ocr-backend.service
+#
+# 安装步骤:
+# 1. sudo nano /etc/systemd/system/ocr-backend.service
+# 2. 复制此文件内容并修改路径
+# 3. sudo systemctl daemon-reload
+# 4. sudo systemctl enable ocr-backend
+# 5. sudo systemctl start ocr-backend
+
+[Unit]
+Description=OCR and Translation Backend Service
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+
+# 工作目录（修改为你的实际路径）
+WorkingDirectory=/opt/ocrandtranslate/backend
+
+# 虚拟环境路径
+Environment="PATH=/opt/ocrandtranslate/backend/.venv/bin"
+
+# 启动命令（只监听本地 127.0.0.1，不对外暴露）
+ExecStart=/opt/ocrandtranslate/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+
+# 重启策略
+Restart=always
+RestartSec=10
+
+# 标准输出和错误输出（可选）
+StandardOutput=journal
+StandardError=journal
+
+# 资源限制（可选）
+# LimitNOFILE=65536
+# LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target

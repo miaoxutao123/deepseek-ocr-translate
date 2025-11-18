@@ -1,0 +1,170 @@
+#!/bin/bash
+
+echo "=========================================="
+echo "OCR & Translation System Startup (Clean)"
+echo "=========================================="
+echo ""
+
+# 创建日志目录
+mkdir -p logs
+
+# 1. 清理旧进程
+echo "Cleaning up old processes..."
+
+# 停止旧的后端进程
+if [ -f "logs/backend.pid" ]; then
+    OLD_PID=$(cat logs/backend.pid)
+    if ps -p $OLD_PID > /dev/null 2>&1; then
+        echo "Stopping old backend process (PID: $OLD_PID)..."
+        kill $OLD_PID 2>/dev/null
+        sleep 1
+    fi
+    rm logs/backend.pid
+fi
+
+# 停止旧的前端进程
+if [ -f "logs/frontend.pid" ]; then
+    OLD_PID=$(cat logs/frontend.pid)
+    if ps -p $OLD_PID > /dev/null 2>&1; then
+        echo "Stopping old frontend process (PID: $OLD_PID)..."
+        kill $OLD_PID 2>/dev/null
+        sleep 1
+    fi
+    rm logs/frontend.pid
+fi
+
+# 强制清理所有相关进程
+pkill -f "uvicorn app.main:app" 2>/dev/null
+pkill -f "vite.*5173" 2>/dev/null
+
+echo "Waiting for ports to be released..."
+sleep 2
+
+# 2. 检查后端环境
+echo "Checking backend environment..."
+if [ ! -d "backend/.venv" ]; then
+    echo "Error: Virtual environment not found!"
+    echo "Please run: bash setup_uv.sh"
+    exit 1
+fi
+
+if [ ! -f "backend/.env" ]; then
+    echo "Error: .env file not found!"
+    echo "Please create backend/.env file"
+    exit 1
+fi
+
+# 3. 启动后端（只监听本地）
+echo "Starting backend..."
+cd backend
+source .venv/bin/activate
+
+# 读取 .env 配置中的 HOST 和 PORT（处理可能的空格和注释）
+BACKEND_HOST=$(grep -E '^HOST=' .env 2>/dev/null | head -1 | cut -d '=' -f2 | tr -d ' \r\n')
+BACKEND_PORT=$(grep -E '^PORT=' .env 2>/dev/null | head -1 | cut -d '=' -f2 | tr -d ' \r\n')
+
+# 使用默认值如果没有配置
+BACKEND_HOST=${BACKEND_HOST:-127.0.0.1}
+BACKEND_PORT=${BACKEND_PORT:-8000}
+
+echo "Backend configuration from .env:"
+echo "  HOST: ${BACKEND_HOST}"
+echo "  PORT: ${BACKEND_PORT}"
+echo "Backend will listen on ${BACKEND_HOST}:${BACKEND_PORT}"
+
+# 检查端口是否被占用
+if lsof -Pi :${BACKEND_PORT} -sTCP:LISTEN -t >/dev/null 2>&1; then
+    echo "Error: Port ${BACKEND_PORT} is already in use!"
+    echo "Please stop the process using:"
+    echo "  sudo lsof -i :${BACKEND_PORT}"
+    echo "  kill <PID>"
+    exit 1
+fi
+
+# 后台启动后端（使用详细日志模式）
+echo "使用详细日志模式启动后端..."
+export HOST=${BACKEND_HOST}
+export PORT=${BACKEND_PORT}
+nohup python run.py > ../logs/backend.log 2>&1 &
+BACKEND_PID=$!
+echo "Backend started with PID: $BACKEND_PID"
+echo $BACKEND_PID > ../logs/backend.pid
+
+cd ..
+
+# 等待后端启动
+echo "Waiting for backend to initialize..."
+sleep 3
+
+# 验证后端启动
+if curl -s http://${BACKEND_HOST}:${BACKEND_PORT}/health > /dev/null 2>&1; then
+    echo "✓ Backend is running"
+else
+    echo "✗ Backend failed to start"
+    echo "Check logs: tail -f logs/backend.log"
+    exit 1
+fi
+
+# 4. 启动前端开发服务器
+echo ""
+echo "Starting frontend dev server..."
+cd frontend
+
+if [ ! -d "node_modules" ]; then
+    echo "Installing frontend dependencies..."
+    npm install
+fi
+
+# 检查前端端口是否被占用
+FRONTEND_PORT=5173
+if lsof -Pi :${FRONTEND_PORT} -sTCP:LISTEN -t >/dev/null 2>&1; then
+    echo "Warning: Port ${FRONTEND_PORT} is in use, Vite will use next available port"
+fi
+
+# 后台启动前端
+nohup npm run dev > ../logs/frontend.log 2>&1 &
+FRONTEND_PID=$!
+echo "Frontend started with PID: $FRONTEND_PID"
+echo $FRONTEND_PID > ../logs/frontend.pid
+
+cd ..
+
+# 5. 等待前端启动
+echo "Waiting for frontend to initialize..."
+sleep 5
+
+# 从日志中提取实际使用的前端端口
+ACTUAL_FRONTEND_PORT=$(grep -oP 'localhost:\K\d+' logs/frontend.log | head -1)
+if [ -z "$ACTUAL_FRONTEND_PORT" ]; then
+    ACTUAL_FRONTEND_PORT=5173
+fi
+
+# 获取服务器 IP
+SERVER_IP=$(hostname -I | awk '{print $1}')
+
+echo ""
+echo "=========================================="
+echo "System started successfully!"
+echo "=========================================="
+echo ""
+echo "📍 Access URLs:"
+echo "   Frontend (Local):   http://127.0.0.1:${ACTUAL_FRONTEND_PORT}"
+echo "   Frontend (Network): http://${SERVER_IP}:${ACTUAL_FRONTEND_PORT}"
+echo "   Backend (Local):    http://${BACKEND_HOST}:${BACKEND_PORT}/docs"
+echo ""
+echo "📝 Logs:"
+echo "   Backend:  tail -f logs/backend.log"
+echo "   Frontend: tail -f logs/frontend.log"
+echo ""
+echo "🔧 Process IDs:"
+echo "   Backend:  $BACKEND_PID"
+echo "   Frontend: $FRONTEND_PID"
+echo ""
+echo "⚠️  Security Note:"
+echo "   - Frontend: Accessible from network (0.0.0.0:${ACTUAL_FRONTEND_PORT}) for development"
+echo "   - Backend:  Only accessible locally (${BACKEND_HOST}:${BACKEND_PORT})"
+echo "   - External access requires Nginx proxy in production"
+echo ""
+echo "🛑 To stop services:"
+echo "   bash stop_all.sh"
+echo ""
