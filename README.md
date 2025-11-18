@@ -228,17 +228,4 @@ python clean_ocr_tags.py --execute   # 执行
 
 ---
 
-## 📸 截图 | Screenshots
-
-### OCR 识别界面
-![OCR Interface](docs/screenshots/ocr.png)
-
-### 实时翻译
-![Translation Progress](docs/screenshots/translation.png)
-
-### 历史管理
-![History View](docs/screenshots/history.png)
-
----
-
 **注意**: 这是一个开源项目，请确保您拥有使用相关 API 服务的适当权限和密钥。
