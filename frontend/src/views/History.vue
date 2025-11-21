@@ -193,27 +193,31 @@
         <!-- 翻译结果 -->
         <div v-if="detailDialog.data.translation_result" class="result-section">
           <h3>翻译结果</h3>
-          <div v-if="translationPages.length > 0">
-            <el-tabs type="border-card">
-              <el-tab-pane
-                v-for="page in translationPages"
-                :key="page.page_number"
-                :label="`第 ${page.page_number} 页`"
+          <div v-if="translationPairs.length > 0">
+            <div class="translation-pairs-container">
+              <div
+                v-for="(pair, index) in translationPairs"
+                :key="index"
+                class="translation-pair"
               >
-                <div class="translation-result">
+                <div class="pair-header">
+                  <span class="pair-index">{{ index + 1 }}</span>
+                </div>
+                <div class="pair-content">
                   <div class="original">
                     <h4>原文</h4>
-                    <pre>{{ page.original_text }}</pre>
+                    <pre>{{ pair.source }}</pre>
                   </div>
                   <el-divider />
                   <div class="translated">
                     <h4>译文</h4>
-                    <pre>{{ page.translated_text }}</pre>
+                    <pre>{{ pair.translation }}</pre>
                   </div>
                 </div>
-              </el-tab-pane>
-            </el-tabs>
+              </div>
+            </div>
           </div>
+          <el-empty v-else description="暂无翻译结果" />
         </div>
 
         <!-- 任务信息 -->
@@ -300,10 +304,16 @@ const ocrPages = computed(() => {
   }
 })
 
-const translationPages = computed(() => {
+const translationPairs = computed(() => {
   if (!detailDialog.value.data?.translation_result) return []
   try {
-    return JSON.parse(detailDialog.value.data.translation_result)
+    const result = JSON.parse(detailDialog.value.data.translation_result)
+    // 新格式：数组 [{source: "...", translation: "..."}]
+    if (Array.isArray(result) && result.length > 0 && result[0].source !== undefined) {
+      return result
+    }
+    // 旧格式兼容（如果有的话）
+    return []
   } catch (e) {
     console.error('Failed to parse translation result:', e)
     return []
@@ -685,6 +695,56 @@ onUnmounted(() => {
   line-height: 1.6;
   max-height: 400px;
   overflow-y: auto;
+}
+
+.translation-pairs-container {
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.translation-pair {
+  margin-bottom: 20px;
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.pair-header {
+  background-color: #f5f7fa;
+  padding: 10px 15px;
+  border-bottom: 1px solid #ebeef5;
+}
+
+.pair-index {
+  font-weight: bold;
+  color: #409eff;
+  font-size: 14px;
+}
+
+.pair-content {
+  padding: 15px;
+}
+
+.translation-pair .original,
+.translation-pair .translated {
+  margin-bottom: 0;
+}
+
+.translation-pair h4 {
+  margin-bottom: 10px;
+  color: #606266;
+  font-size: 14px;
+}
+
+.translation-pair pre {
+  padding: 15px;
+  background-color: #f5f7fa;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  line-height: 1.6;
+  margin: 0;
+  font-size: 14px;
 }
 
 .translation-result {
