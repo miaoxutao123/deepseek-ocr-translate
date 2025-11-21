@@ -18,6 +18,9 @@ from .auth import get_current_user
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/translate", tags=["translation"])
 
+# 存储翻译任务的暂停状态（内存中，生产环境可以用 Redis）
+translation_task_states = {}
+
 
 def get_user_translation_service(user: User, db: Session) -> TranslationService:
     """Create translation service for user"""
@@ -41,7 +44,8 @@ async def background_translate_task(
     user_id: int,
     api_base: str,
     api_key: str,
-    model: str
+    model: str,
+    start_index: int = 0  # 从哪个句子开始
 ):
     """Background task for translation with progress updates"""
     from ..database import SessionLocal
@@ -59,23 +63,63 @@ async def background_translate_task(
         # Update status to processing
         history.status = TaskStatus.PROCESSING
         history.total_pages = len(sentences)  # Use total_pages for total sentences
-        history.current_page = 0
+        history.current_page = start_index
         db.commit()
+
+        # Initialize task state
+        translation_task_states[history_id] = {
+            "paused": False,
+            "stopped": False,
+            "sentences": sentences  # 保存句子列表用于继续翻译
+        }
 
         # Create translation service
         translate_service = TranslationService(api_base, api_key, model, db, user)
 
-        # Store translated sentences
+        # Load existing translated sentences if resuming
         translated_pairs = []
+        if start_index > 0 and history.translation_result:
+            try:
+                translated_pairs = json.loads(history.translation_result)
+            except json.JSONDecodeError:
+                pass
 
         # Translate one by one with progress updates
-        for index, sentence in enumerate(sentences, 1):
+        for index in range(start_index, len(sentences)):
+            sentence = sentences[index]
+
+            # Check if paused or stopped
+            task_state = translation_task_states.get(history_id, {})
+
+            # 如果暂停，等待继续
+            while task_state.get("paused", False):
+                history.status = "paused"
+                history.progress_message = f"已暂停，当前进度: {index}/{len(sentences)}"
+                db.commit()
+                await asyncio.sleep(1)
+                task_state = translation_task_states.get(history_id, {})
+
+                # 如果被停止，退出
+                if task_state.get("stopped", False):
+                    break
+
+            # 检查是否停止
+            if task_state.get("stopped", False):
+                history.status = "stopped"
+                history.progress_message = f"翻译已停止，完成 {index}/{len(sentences)} 句"
+                db.commit()
+                logger.info(f"翻译任务 {history_id} 已停止，完成 {index}/{len(sentences)} 句")
+                return
+
             try:
-                logger.info(f"翻译第 {index}/{len(sentences)} 句")
+                logger.info(f"翻译第 {index + 1}/{len(sentences)} 句")
+
+                # Update status back to processing
+                history.status = TaskStatus.PROCESSING
 
                 # Update progress
-                history.current_page = index
-                history.progress_message = f"正在翻译第 {index}/{len(sentences)} 句..."
+                history.current_page = index + 1
+                history.progress_message = f"正在翻译第 {index + 1}/{len(sentences)} 句..."
                 db.commit()
 
                 # Translate single sentence
@@ -97,7 +141,7 @@ async def background_translate_task(
                 db.commit()
 
             except Exception as e:
-                logger.error(f"翻译第 {index} 句失败: {str(e)}")
+                logger.error(f"翻译第 {index + 1} 句失败: {str(e)}")
                 translated_pairs.append({
                     "source": sentence,
                     "translation": f"[翻译错误: {str(e)}]"
@@ -120,6 +164,9 @@ async def background_translate_task(
             history.error_message = str(e)
             db.commit()
     finally:
+        # 清理任务状态
+        if history_id in translation_task_states:
+            del translation_task_states[history_id]
         db.close()
 
 
@@ -249,7 +296,8 @@ async def translate(
         user_id=current_user.id,
         api_base=api_base,
         api_key=api_key,
-        model=model
+        model=model,
+        start_index=0
     )
 
     logger.info(f"✅ 翻译任务已创建: {history_id}")
@@ -260,6 +308,131 @@ async def translate(
         status=TaskStatus.PENDING,
         message="Translation task started"
     )
+
+
+@router.post("/pause/{history_id}")
+def pause_translation(
+    history_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Pause a running translation task"""
+    history = db.query(History).filter(
+        History.id == history_id,
+        History.user_id == current_user.id
+    ).first()
+
+    if not history:
+        raise HTTPException(status_code=404, detail="History not found")
+
+    if history_id in translation_task_states:
+        translation_task_states[history_id]["paused"] = True
+        logger.info(f"翻译任务 {history_id} 已暂停")
+        return {"message": "Translation paused", "task_id": history_id}
+    else:
+        raise HTTPException(status_code=400, detail="Translation task not running")
+
+
+@router.post("/resume/{history_id}")
+async def resume_translation(
+    history_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Resume a paused translation task"""
+    history = db.query(History).filter(
+        History.id == history_id,
+        History.user_id == current_user.id
+    ).first()
+
+    if not history:
+        raise HTTPException(status_code=404, detail="History not found")
+
+    # 如果任务还在内存中（只是暂停状态），直接恢复
+    if history_id in translation_task_states:
+        translation_task_states[history_id]["paused"] = False
+        logger.info(f"翻译任务 {history_id} 继续")
+        return {"message": "Translation resumed", "task_id": history_id}
+
+    # 如果任务不在内存中（可能服务重启了），需要重新启动
+    # 从数据库中获取已翻译的进度
+    if history.status in ["paused", "stopped", TaskStatus.PROCESSING]:
+        # 获取翻译服务配置
+        if not current_user.translate_api_key:
+            raise HTTPException(status_code=400, detail="Translation API key not configured")
+
+        api_key = EncryptionManager.decrypt_api_key(
+            current_user.translate_api_key, current_user.id, settings.SECRET_KEY
+        )
+        api_base = current_user.translate_api_base or "https://api.openai.com/v1"
+        model = current_user.translate_model or "gpt-4"
+
+        # 获取已翻译的句子数
+        start_index = history.current_page or 0
+
+        # 需要重新分割文本（或从保存的状态中恢复）
+        # 这里简化处理：如果有 OCR 结果，重新提取文本
+        if history.ocr_result:
+            ocr_results = json.loads(history.ocr_result)
+            merged_text_parts = []
+            for page in ocr_results:
+                text = page["text"].strip()
+                if text:
+                    merged_text_parts.append(text)
+            source_text = "\n\n".join(merged_text_parts)
+        else:
+            raise HTTPException(status_code=400, detail="Cannot resume: no source text available")
+
+        sentences = TranslationService.split_and_merge_text(
+            source_text, history.source_language or "auto"
+        )
+
+        # 启动后台任务从上次位置继续
+        background_tasks.add_task(
+            background_translate_task,
+            history_id=history_id,
+            sentences=sentences,
+            source_language=history.source_language or "auto",
+            target_language=history.target_language or "zh",
+            user_id=current_user.id,
+            api_base=api_base,
+            api_key=api_key,
+            model=model,
+            start_index=start_index
+        )
+
+        logger.info(f"翻译任务 {history_id} 从第 {start_index} 句继续")
+        return {"message": f"Translation resumed from sentence {start_index}", "task_id": history_id}
+
+    raise HTTPException(status_code=400, detail="Translation task cannot be resumed")
+
+
+@router.post("/stop/{history_id}")
+def stop_translation(
+    history_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Stop a running translation task"""
+    history = db.query(History).filter(
+        History.id == history_id,
+        History.user_id == current_user.id
+    ).first()
+
+    if not history:
+        raise HTTPException(status_code=404, detail="History not found")
+
+    if history_id in translation_task_states:
+        translation_task_states[history_id]["stopped"] = True
+        translation_task_states[history_id]["paused"] = False  # 取消暂停以允许循环退出
+        logger.info(f"翻译任务 {history_id} 已停止")
+        return {"message": "Translation stopped", "task_id": history_id}
+    else:
+        # 任务可能已经完成或不存在
+        history.status = "stopped"
+        db.commit()
+        return {"message": "Translation marked as stopped", "task_id": history_id}
 
 
 @router.get("/progress/{history_id}")
