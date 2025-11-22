@@ -20,6 +20,7 @@ class CorrectionService:
         self.db = db
         self.user = user
         self.embedding_service = None
+        self.embedding_dimension = user.embedding_dimension or 768  # Default 768
 
         # Initialize embedding service if user has API key
         if user.embedding_api_key:
@@ -27,7 +28,8 @@ class CorrectionService:
                 user.embedding_api_key, user.id, settings.SECRET_KEY
             )
             api_base = user.embedding_api_base or "https://generativelanguage.googleapis.com/v1beta"
-            self.embedding_service = EmbeddingService(api_base, decrypted_key)
+            model = user.embedding_model or "text-embedding-004"
+            self.embedding_service = EmbeddingService(api_base, decrypted_key, model)
 
     async def create_correction(
         self,

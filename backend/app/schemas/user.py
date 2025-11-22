@@ -46,6 +46,8 @@ class APIConfig(BaseModel):
 
     embedding_api_base: Optional[str] = "https://generativelanguage.googleapis.com/v1beta"
     embedding_api_key: Optional[str] = None
+    embedding_model: Optional[str] = "text-embedding-004"
+    embedding_dimension: Optional[int] = 768
 
 
 class APIConfigResponse(BaseModel):
@@ -59,4 +61,6 @@ class APIConfigResponse(BaseModel):
     translate_api_key_set: bool = False
 
     embedding_api_base: Optional[str] = None
+    embedding_model: Optional[str] = None
+    embedding_dimension: Optional[int] = None
     embedding_api_key_set: bool = False

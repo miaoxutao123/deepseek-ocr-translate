@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     # Translation Settings
     CORRECTION_TOKEN_THRESHOLD: int = 4000
     VECTOR_SIMILARITY_THRESHOLD: float = 0.85
+    EMBEDDING_DIMENSION: int = 768  # Default: Gemini text-embedding-004
+    # Common dimensions: 768 (Gemini/OpenAI text-embedding-3-small),
+    # 1536 (OpenAI text-embedding-ada-002), 3072 (OpenAI text-embedding-3-large)
 
     # CORS
     ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:3000"

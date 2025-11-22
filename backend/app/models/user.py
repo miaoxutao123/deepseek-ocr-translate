@@ -23,3 +23,5 @@ class User(Base):
 
     embedding_api_base = Column(String, nullable=True)
     embedding_api_key = Column(String, nullable=True)  # Encrypted
+    embedding_model = Column(String, nullable=True)
+    embedding_dimension = Column(Integer, nullable=True, default=768)  # Vector dimension

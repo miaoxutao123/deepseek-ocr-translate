@@ -157,6 +157,8 @@ async def save_api_config(
     current_user.translate_api_base = config.translate_api_base
     current_user.translate_model = config.translate_model
     current_user.embedding_api_base = config.embedding_api_base
+    current_user.embedding_model = config.embedding_model
+    current_user.embedding_dimension = config.embedding_dimension
 
     db.commit()
 
@@ -168,6 +170,8 @@ async def save_api_config(
         translate_model=current_user.translate_model,
         translate_api_key_set=bool(current_user.translate_api_key),
         embedding_api_base=current_user.embedding_api_base,
+        embedding_model=current_user.embedding_model,
+        embedding_dimension=current_user.embedding_dimension,
         embedding_api_key_set=bool(current_user.embedding_api_key),
     )
 
@@ -185,5 +189,7 @@ async def get_api_config(
         translate_model=current_user.translate_model,
         translate_api_key_set=bool(current_user.translate_api_key),
         embedding_api_base=current_user.embedding_api_base,
+        embedding_model=current_user.embedding_model,
+        embedding_dimension=current_user.embedding_dimension,
         embedding_api_key_set=bool(current_user.embedding_api_key),
     )
